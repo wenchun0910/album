@@ -275,7 +275,7 @@
          * 系統設定與狀態
          */
         const API_URL = "https://script.google.com/macros/s/AKfycbzSZO0CMwckh-ZDRgUFGhT9OgTUmBa8nRtDi4fYhpfzPsPdlwQL8O0IeCxJDKuBqYzC6Q/exec"; // 請替換為您的部署網址
-        let isMockMode = (API_URL === "您的_GOOGLE_APPS_SCRIPT_URL" || !API_URL);
+        let isMockMode = (API_URL === "https://script.google.com/macros/s/AKfycbzSZO0CMwckh-ZDRgUFGhT9OgTUmBa8nRtDi4fYhpfzPsPdlwQL8O0IeCxJDKuBqYzC6Q/exec" || !API_URL);
 
         let state = {
             albums: [],
@@ -505,6 +505,49 @@
         }
 
         /**
+         * 實用工具函式 (處理日期與 Google Drive 圖片連結)
+         */
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            try {
+                // 如果已經是 YYYY-MM-DD 格式就直接回傳
+                if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+                
+                const d = new Date(dateStr);
+                if (isNaN(d.getTime())) return dateStr;
+                
+                // 處理時區，確保取得正確的本地日期
+                const offset = d.getTimezoneOffset() * 60000;
+                const localDate = new Date(d.getTime() - offset);
+                return localDate.toISOString().split('T')[0];
+            } catch(e) {
+                return dateStr;
+            }
+        }
+
+        function parseDriveImageUrl(url) {
+            if (!url) return 'https://via.placeholder.com/800x600?text=No+Image';
+            
+            // 如果不是 Google Drive 網址，直接回傳原網址
+            if (!url.includes('drive.google.com')) return url;
+            
+            let id = '';
+            // 解析 /file/d/ID/view 格式
+            const match1 = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+            if (match1) id = match1[1];
+            
+            // 解析 ?id=ID 格式
+            const match2 = url.match(/id=([a-zA-Z0-9_-]+)/);
+            if (!id && match2) id = match2[1];
+
+            // 轉換為 Google Drive 圖片直連網址
+            if (id) {
+                return `https://drive.google.com/uc?export=view&id=${id}`;
+            }
+            return url;
+        }
+
+        /**
          * 前台渲染邏輯
          */
         function renderPublicAlbums(albumsToRender) {
@@ -522,15 +565,18 @@
             noRes.classList.add('hidden');
 
             albumsToRender.forEach(album => {
+                const formattedDate = formatDate(album.date);
+                const imageUrl = parseDriveImageUrl(album.coverImage);
+
                 grid.insertAdjacentHTML('beforeend', `
                     <div class="bg-white rounded-xl shadow-md overflow-hidden card-hover border border-gray-100 flex flex-col h-full">
                         <div class="relative h-48 w-full overflow-hidden bg-gray-200 skeleton">
-                            <img src="${album.coverImage}" alt="${album.title}" 
+                            <img src="${imageUrl}" alt="${album.title}" 
                                  class="w-full h-full object-cover absolute top-0 left-0 transition-opacity duration-500 opacity-0"
                                  onload="this.classList.remove('opacity-0'); this.parentElement.classList.remove('skeleton');"
                                  onerror="this.src='https://via.placeholder.com/800x600?text=Error'; this.classList.remove('opacity-0');">
                             <div class="absolute top-0 right-0 bg-blue-600 text-white text-xs font-bold px-3 py-1 m-2 rounded-full shadow">
-                                ${album.date}
+                                ${formattedDate}
                             </div>
                         </div>
                         <div class="p-5 flex flex-col flex-grow">
@@ -564,11 +610,14 @@
             const tbody = document.getElementById('adminAlbumsTable');
             tbody.innerHTML = '';
             state.albums.forEach(album => {
+                const formattedDate = formatDate(album.date);
+                const imageUrl = parseDriveImageUrl(album.coverImage);
+
                 tbody.insertAdjacentHTML('beforeend', `
                     <tr>
-                        <td class="px-6 py-4 whitespace-nowrap"><img src="${album.coverImage}" class="h-10 w-16 object-cover rounded" onerror="this.src='https://via.placeholder.com/150'"></td>
+                        <td class="px-6 py-4 whitespace-nowrap"><img src="${imageUrl}" class="h-10 w-16 object-cover rounded" onerror="this.src='https://via.placeholder.com/150'"></td>
                         <td class="px-6 py-4 whitespace-nowrap"><div class="text-sm font-medium text-gray-900">${album.title}</div></td>
-                        <td class="px-6 py-4 whitespace-nowrap"><div class="text-sm text-gray-500">${album.date}</div></td>
+                        <td class="px-6 py-4 whitespace-nowrap"><div class="text-sm text-gray-500">${formattedDate}</div></td>
                         <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                             <button onclick='editAlbum(${JSON.stringify(album).replace(/'/g, "&#39;")})' class="text-indigo-600 hover:text-indigo-900 mr-3"><i class="fa-solid fa-pen-to-square"></i> 編輯</button>
                             <button onclick="confirmDelete('album', '${album.id}')" class="text-red-600 hover:text-red-900"><i class="fa-solid fa-trash"></i> 刪除</button>
