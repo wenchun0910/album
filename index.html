@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>活動相簿系統 | 雲端硬碟整合與管理</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Font Awesome 圖示 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: #f3f4f6; }
+        .card-hover { transition: all 0.3s ease; }
+        .card-hover:hover { transform: translateY(-5px); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1); }
+        .skeleton {
+            background: linear-gradient(110deg, #ececec 8%, #f5f5f5 18%, #ececec 33%);
+            background-size: 200% 100%;
+            animation: 1.5s shine linear infinite;
+        }
+        @keyframes shine { to { background-position-x: -200%; } }
+        /* 隱藏捲軸但可滾動 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen text-gray-800">
+
+    <!-- 全域通知 Toast -->
+    <div id="toast" class="fixed top-5 right-5 z-[100] transform transition-all duration-300 translate-x-full opacity-0 flex items-center p-4 mb-4 text-gray-500 bg-white rounded-lg shadow dark:text-gray-400 dark:bg-gray-800" role="alert">
+        <div id="toastIcon" class="inline-flex items-center justify-center flex-shrink-0 w-8 h-8 rounded-lg"></div>
+        <div id="toastMessage" class="ml-3 text-sm font-normal">訊息</div>
+    </div>
+
+    <!-- 導覽列 -->
+    <nav class="bg-white shadow-sm sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center cursor-pointer" onclick="switchView('public')">
+                    <i class="fa-solid fa-camera-retro text-blue-600 text-2xl mr-3"></i>
+                    <span class="font-bold text-xl tracking-tight text-gray-900">校園活動相簿</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button id="navAdminBtn" onclick="showLoginModal()" class="text-gray-500 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                        <i class="fa-solid fa-user-lock mr-1"></i> 管理登入
+                    </button>
+                    <div id="navUserMenu" class="hidden flex items-center space-x-4">
+                        <span class="text-sm text-gray-600">哈囉, <span id="navUsername" class="font-bold">Admin</span></span>
+                        <button onclick="switchView('admin-albums')" class="text-white bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-md text-sm font-medium transition-colors">後台管理</button>
+                        <button onclick="logout()" class="text-red-500 hover:text-red-700 px-3 py-2 rounded-md text-sm font-medium transition-colors">登出</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ================= 前台視圖 (Public View) ================= -->
+    <div id="publicView" class="flex flex-col flex-grow">
+        <!-- 頁首標題區 -->
+        <div class="bg-blue-600 text-white py-12 px-4 sm:px-6 lg:px-8 text-center relative overflow-hidden">
+            <div class="absolute inset-0 opacity-20">
+                <img src="https://images.unsplash.com/photo-1511649475669-e288648b2339?q=80&w=2000&auto=format&fit=crop" alt="Background" class="w-full h-full object-cover">
+            </div>
+            <div class="relative z-10 max-w-3xl mx-auto">
+                <h1 class="text-3xl sm:text-4xl font-extrabold mb-4">精彩活動回顧</h1>
+                <p class="text-lg sm:text-xl text-blue-100 mb-8">結合 Google 雲端硬碟，完整記錄每一個珍貴的瞬間。</p>
+                <div class="max-w-md mx-auto relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fa-solid fa-search text-gray-400"></i>
+                    </div>
+                    <input type="text" id="searchInput" class="block w-full pl-10 pr-3 py-3 border border-transparent rounded-full leading-5 bg-white text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-md" placeholder="搜尋活動名稱或年份...">
+                </div>
+            </div>
+        </div>
+
+        <!-- 主要內容區 -->
+        <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full">
+            <div id="loadingIndicator" class="flex flex-col items-center justify-center py-20">
+                <i class="fa-solid fa-circle-notch fa-spin text-4xl text-blue-500 mb-4"></i>
+                <p class="text-gray-500">載入中...</p>
+            </div>
+            <div id="albumGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 hidden"></div>
+            <div id="noResults" class="hidden text-center py-20">
+                <i class="fa-regular fa-folder-open text-6xl text-gray-300 mb-4"></i>
+                <p class="text-xl text-gray-500">找不到符合的活動相簿</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- ================= 後台視圖 (Admin View) ================= -->
+    <div id="adminView" class="hidden flex-grow flex flex-col md:flex-row bg-gray-100">
+        <!-- 側邊欄 -->
+        <aside class="w-full md:w-64 bg-white border-r border-gray-200">
+            <div class="p-6">
+                <h2 class="text-xl font-bold text-gray-800">管理中心</h2>
+            </div>
+            <nav class="space-y-1 px-3">
+                <button onclick="switchAdminTab('albums')" id="tab-albums" class="w-full text-left px-3 py-2 rounded-md font-medium text-blue-700 bg-blue-50 flex items-center">
+                    <i class="fa-solid fa-images w-6"></i> 相簿管理
+                </button>
+                <button onclick="switchAdminTab('users')" id="tab-users" class="w-full text-left px-3 py-2 rounded-md font-medium text-gray-600 hover:bg-gray-50 flex items-center">
+                    <i class="fa-solid fa-users-gear w-6"></i> 帳號管理
+                </button>
+            </nav>
+        </aside>
+
+        <!-- 管理內容區 -->
+        <main class="flex-grow p-6">
+            <!-- 相簿管理面板 -->
+            <div id="adminAlbumsPanel">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">相簿列表</h2>
+                    <button onclick="openAlbumModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-medium shadow-sm flex items-center">
+                        <i class="fa-solid fa-plus mr-2"></i> 新增相簿
+                    </button>
+                </div>
+                <div class="bg-white shadow rounded-lg overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">圖片</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">活動名稱</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">日期</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adminAlbumsTable" class="bg-white divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 帳號管理面板 -->
+            <div id="adminUsersPanel" class="hidden">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">帳號列表</h2>
+                    <button onclick="openUserModal()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-medium shadow-sm flex items-center">
+                        <i class="fa-solid fa-user-plus mr-2"></i> 新增帳號
+                    </button>
+                </div>
+                <div class="bg-white shadow rounded-lg overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">帳號</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">建立時間</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adminUsersTable" class="bg-white divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 頁尾 -->
+    <footer class="bg-white border-t border-gray-200 mt-auto">
+        <div class="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 text-center text-gray-500 text-sm">
+            &copy; 2026 雲端活動相簿系統. All rights reserved.
+        </div>
+    </footer>
+
+    <!-- ================= 互動視窗 (Modals) ================= -->
+    
+    <!-- 登入 Modal -->
+    <div id="loginModal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-black bg-opacity-50 flex items-center justify-center">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 transform transition-all">
+            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                <h3 class="text-lg font-bold text-gray-900">管理員登入</h3>
+                <button onclick="closeLoginModal()" class="text-gray-400 hover:text-gray-500"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <form id="loginForm" class="p-6">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">帳號</label>
+                    <input type="text" id="loginUsername" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="輸入 admin">
+                </div>
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">密碼</label>
+                    <input type="password" id="loginPassword" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="輸入 admin123">
+                </div>
+                <button type="submit" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 transition duration-200">登入</button>
+                <p class="text-xs text-center text-gray-500 mt-4">測試帳號：admin / 密碼：admin123</p>
+            </form>
+        </div>
+    </div>
+
+    <!-- 相簿表單 Modal -->
+    <div id="albumModal" class="fixed inset-0 z-[60] hidden overflow-y-auto bg-black bg-opacity-50 flex items-center justify-center">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 my-8">
+            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                <h3 id="albumModalTitle" class="text-lg font-bold text-gray-900">新增相簿</h3>
+                <button type="button" onclick="closeModal('albumModal')" class="text-gray-400 hover:text-gray-500"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <form id="albumForm" class="p-6">
+                <input type="hidden" id="albumId">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">活動名稱 *</label>
+                        <input type="text" id="albumTitle" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">日期 *</label>
+                        <input type="date" id="albumDate" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">封面圖片網址 (URL) *</label>
+                    <input type="url" id="albumCover" required placeholder="https://..." class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">雲端硬碟資料夾連結 (URL) *</label>
+                    <input type="url" id="albumLink" required placeholder="https://drive.google.com/..." class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">活動描述</label>
+                    <textarea id="albumDesc" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"></textarea>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" onclick="closeModal('albumModal')" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center">
+                        <i id="albumFormSpinner" class="fa-solid fa-spinner fa-spin mr-2 hidden"></i> 儲存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 帳號表單 Modal -->
+    <div id="userModal" class="fixed inset-0 z-[60] hidden overflow-y-auto bg-black bg-opacity-50 flex items-center justify-center">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                <h3 id="userModalTitle" class="text-lg font-bold text-gray-900">新增帳號</h3>
+                <button type="button" onclick="closeModal('userModal')" class="text-gray-400 hover:text-gray-500"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <form id="userForm" class="p-6">
+                <input type="hidden" id="userId">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">使用者帳號 *</label>
+                    <input type="text" id="userUsername" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">密碼 *</label>
+                    <input type="text" id="userPassword" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" onclick="closeModal('userModal')" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">取消</button>
+                    <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center">
+                        <i id="userFormSpinner" class="fa-solid fa-spinner fa-spin mr-2 hidden"></i> 儲存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 確認刪除 Modal -->
+    <div id="deleteModal" class="fixed inset-0 z-[70] hidden overflow-y-auto bg-black bg-opacity-50 flex items-center justify-center">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-sm mx-4 p-6 text-center">
+            <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+                <i class="fa-solid fa-triangle-exclamation text-red-600 text-xl"></i>
+            </div>
+            <h3 class="text-lg leading-6 font-medium text-gray-900 mb-2">確認刪除</h3>
+            <p class="text-sm text-gray-500 mb-6">您確定要刪除這筆資料嗎？此動作無法復原。</p>
+            <div class="flex justify-center space-x-3">
+                <button onclick="closeModal('deleteModal')" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">取消</button>
+                <button id="confirmDeleteBtn" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 flex items-center">
+                    <i id="deleteSpinner" class="fa-solid fa-spinner fa-spin mr-2 hidden"></i> 確定刪除
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * 系統設定與狀態
+         */
+        const API_URL = "您的_GOOGLE_APPS_SCRIPT_URL"; // 請替換為您的部署網址
+        let isMockMode = (API_URL === "您的_GOOGLE_APPS_SCRIPT_URL" || !API_URL);
+
+        let state = {
+            albums: [],
+            users: [],
+            currentUser: null,
+            deleteTarget: { type: null, id: null }
+        };
+
+        // 預設測試資料 (Mock Data)
+        let mockData = {
+            albums: [
+                { id: "a1", title: "2025 全校運動大會", date: "2025-11-15", description: "一年一度的全校運動會。", coverImage: "https://images.unsplash.com/photo-1526676037777-05a232554f77?q=80&w=800&auto=format&fit=crop", driveLink: "#" },
+                { id: "a2", title: "高三畢業旅行", date: "2025-09-20", description: "墾丁三日遊。", coverImage: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=800&auto=format&fit=crop", driveLink: "#" }
+            ],
+            users: [
+                { id: "u1", username: "admin", password: "admin123", createdAt: "2024-01-01" }
+            ]
+        };
+
+        /**
+         * 頁面初始化
+         */
+        window.addEventListener('DOMContentLoaded', async () => {
+            // 嘗試從 sessionStorage 恢復登入狀態 (簡化版驗證)
+            const savedUser = sessionStorage.getItem('currentUser');
+            if (savedUser) {
+                state.currentUser = JSON.parse(savedUser);
+                updateNavUI();
+            }
+
+            await loadData();
+        });
+
+        /**
+         * API 呼叫共用函式 (支援真實 GAS 與 Mock 模式)
+         */
+        async function apiCall(action, payload = {}) {
+            if (isMockMode) return handleMockApi(action, payload);
+
+            try {
+                // 發送 POST 請求給 Google Apps Script
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // 避開 CORS 預檢請求
+                    body: JSON.stringify({ action, ...payload })
+                });
+                
+                const result = await response.json();
+                if(!result.success) throw new Error(result.message || 'API 錯誤');
+                return result;
+            } catch (error) {
+                console.error("API 呼叫失敗:", error);
+                showToast(error.message || "網路連線錯誤", "error");
+                throw error;
+            }
+        }
+
+        /**
+         * Mock 模式的假 API 邏輯
+         */
+        async function handleMockApi(action, payload) {
+            return new Promise((resolve, reject) => {
+                setTimeout(() => { // 模擬網路延遲
+                    switch(action) {
+                        case 'login':
+                            const user = mockData.users.find(u => u.username === payload.username && u.password === payload.password);
+                            if (user) resolve({ success: true, user: { username: user.username } });
+                            else reject(new Error("帳號或密碼錯誤"));
+                            break;
+                        case 'getData':
+                            resolve({ success: true, albums: mockData.albums, users: mockData.users });
+                            break;
+                        case 'saveAlbum':
+                            if (payload.id) {
+                                const idx = mockData.albums.findIndex(a => a.id === payload.id);
+                                if(idx > -1) mockData.albums[idx] = { ...payload };
+                            } else {
+                                mockData.albums.unshift({ ...payload, id: 'a' + Date.now() });
+                            }
+                            resolve({ success: true });
+                            break;
+                        case 'deleteAlbum':
+                            mockData.albums = mockData.albums.filter(a => a.id !== payload.id);
+                            resolve({ success: true });
+                            break;
+                        case 'saveUser':
+                            if (payload.id) {
+                                const idx = mockData.users.findIndex(u => u.id === payload.id);
+                                if(idx > -1) mockData.users[idx] = { ...payload, createdAt: mockData.users[idx].createdAt };
+                            } else {
+                                mockData.users.push({ ...payload, id: 'u' + Date.now(), createdAt: new Date().toISOString().split('T')[0] });
+                            }
+                            resolve({ success: true });
+                            break;
+                        case 'deleteUser':
+                            mockData.users = mockData.users.filter(u => u.id !== payload.id);
+                            resolve({ success: true });
+                            break;
+                        default:
+                            reject(new Error("未知的動作"));
+                    }
+                }, 500);
+            });
+        }
+
+        /**
+         * 載入初始資料
+         */
+        async function loadData() {
+            document.getElementById('loadingIndicator').classList.remove('hidden');
+            document.getElementById('albumGrid').classList.add('hidden');
+            
+            try {
+                const res = await apiCall('getData');
+                state.albums = res.albums || [];
+                state.users = res.users || [];
+                renderPublicAlbums(state.albums);
+                
+                // 如果在後台，更新表格
+                if(!document.getElementById('adminView').classList.contains('hidden')){
+                    renderAdminAlbums();
+                    renderAdminUsers();
+                }
+            } catch (error) {
+                document.getElementById('noResults').classList.remove('hidden');
+                document.getElementById('noResults').querySelector('p').textContent = "載入資料失敗";
+            } finally {
+                document.getElementById('loadingIndicator').classList.add('hidden');
+            }
+        }
+
+        /**
+         * 視圖與介面切換
+         */
+        function switchView(viewName) {
+            const publicView = document.getElementById('publicView');
+            const adminView = document.getElementById('adminView');
+            
+            if (viewName === 'public') {
+                publicView.classList.remove('hidden');
+                adminView.classList.add('hidden');
+                renderPublicAlbums(state.albums); // 回前台重新渲染確保最新
+            } else if (viewName.startsWith('admin')) {
+                if (!state.currentUser) {
+                    showToast("請先登入！", "error");
+                    showLoginModal();
+                    return;
+                }
+                publicView.classList.add('hidden');
+                adminView.classList.remove('hidden');
+                renderAdminAlbums();
+                renderAdminUsers();
+                
+                // 切換後台內部標籤
+                if(viewName === 'admin-albums') switchAdminTab('albums');
+                if(viewName === 'admin-users') switchAdminTab('users');
+            }
+        }
+
+        function switchAdminTab(tabName) {
+            document.getElementById('adminAlbumsPanel').classList.add('hidden');
+            document.getElementById('adminUsersPanel').classList.add('hidden');
+            document.getElementById('tab-albums').className = "w-full text-left px-3 py-2 rounded-md font-medium text-gray-600 hover:bg-gray-50 flex items-center";
+            document.getElementById('tab-users').className = "w-full text-left px-3 py-2 rounded-md font-medium text-gray-600 hover:bg-gray-50 flex items-center";
+
+            if (tabName === 'albums') {
+                document.getElementById('adminAlbumsPanel').classList.remove('hidden');
+                document.getElementById('tab-albums').classList.replace('text-gray-600', 'text-blue-700');
+                document.getElementById('tab-albums').classList.replace('hover:bg-gray-50', 'bg-blue-50');
+            } else {
+                document.getElementById('adminUsersPanel').classList.remove('hidden');
+                document.getElementById('tab-users').classList.replace('text-gray-600', 'text-blue-700');
+                document.getElementById('tab-users').classList.replace('hover:bg-gray-50', 'bg-blue-50');
+            }
+        }
+
+        function updateNavUI() {
+            if (state.currentUser) {
+                document.getElementById('navAdminBtn').classList.add('hidden');
+                document.getElementById('navUserMenu').classList.remove('hidden');
+                document.getElementById('navUsername').textContent = state.currentUser.username;
+            } else {
+                document.getElementById('navAdminBtn').classList.remove('hidden');
+                document.getElementById('navUserMenu').classList.add('hidden');
+            }
+        }
+
+        /**
+         * 登入與登出
+         */
+        function showLoginModal() { document.getElementById('loginModal').classList.remove('hidden'); }
+        function closeLoginModal() { document.getElementById('loginModal').classList.add('hidden'); document.getElementById('loginForm').reset(); }
+        
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            const originalText = btn.textContent;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 登入中...';
+            btn.disabled = true;
+
+            try {
+                const res = await apiCall('login', {
+                    username: document.getElementById('loginUsername').value,
+                    password: document.getElementById('loginPassword').value
+                });
+                
+                state.currentUser = res.user;
+                sessionStorage.setItem('currentUser', JSON.stringify(res.user));
+                updateNavUI();
+                closeLoginModal();
+                showToast("登入成功！", "success");
+                switchView('admin-albums');
+            } catch (err) {
+                // 錯誤已在 apiCall 中提示
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        });
+
+        function logout() {
+            state.currentUser = null;
+            sessionStorage.removeItem('currentUser');
+            updateNavUI();
+            switchView('public');
+            showToast("已登出", "success");
+        }
+
+        /**
+         * 前台渲染邏輯
+         */
+        function renderPublicAlbums(albumsToRender) {
+            const grid = document.getElementById('albumGrid');
+            const noRes = document.getElementById('noResults');
+            grid.innerHTML = '';
+
+            if (!albumsToRender || albumsToRender.length === 0) {
+                grid.classList.add('hidden');
+                noRes.classList.remove('hidden');
+                return;
+            }
+
+            grid.classList.remove('hidden');
+            noRes.classList.add('hidden');
+
+            albumsToRender.forEach(album => {
+                grid.insertAdjacentHTML('beforeend', `
+                    <div class="bg-white rounded-xl shadow-md overflow-hidden card-hover border border-gray-100 flex flex-col h-full">
+                        <div class="relative h-48 w-full overflow-hidden bg-gray-200 skeleton">
+                            <img src="${album.coverImage}" alt="${album.title}" 
+                                 class="w-full h-full object-cover absolute top-0 left-0 transition-opacity duration-500 opacity-0"
+                                 onload="this.classList.remove('opacity-0'); this.parentElement.classList.remove('skeleton');"
+                                 onerror="this.src='https://via.placeholder.com/800x600?text=Error'; this.classList.remove('opacity-0');">
+                            <div class="absolute top-0 right-0 bg-blue-600 text-white text-xs font-bold px-3 py-1 m-2 rounded-full shadow">
+                                ${album.date}
+                            </div>
+                        </div>
+                        <div class="p-5 flex flex-col flex-grow">
+                            <h3 class="text-xl font-bold text-gray-900 mb-2 line-clamp-1">${album.title}</h3>
+                            <p class="text-gray-600 text-sm mb-4 line-clamp-3 flex-grow">${album.description || '無描述'}</p>
+                            <a href="${album.driveLink}" target="_blank" rel="noopener noreferrer" 
+                               class="mt-auto w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 transition-colors">
+                                <i class="fa-brands fa-google-drive mr-2 text-lg"></i> 開啟雲端相簿
+                            </a>
+                        </div>
+                    </div>
+                `);
+            });
+        }
+
+        // 前台搜尋功能
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase().trim();
+            const filtered = state.albums.filter(a => 
+                (a.title||'').toLowerCase().includes(term) || 
+                (a.date||'').includes(term) || 
+                (a.description||'').toLowerCase().includes(term)
+            );
+            renderPublicAlbums(filtered);
+        });
+
+        /**
+         * 後台 CRUD 邏輯 - 相簿
+         */
+        function renderAdminAlbums() {
+            const tbody = document.getElementById('adminAlbumsTable');
+            tbody.innerHTML = '';
+            state.albums.forEach(album => {
+                tbody.insertAdjacentHTML('beforeend', `
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap"><img src="${album.coverImage}" class="h-10 w-16 object-cover rounded" onerror="this.src='https://via.placeholder.com/150'"></td>
+                        <td class="px-6 py-4 whitespace-nowrap"><div class="text-sm font-medium text-gray-900">${album.title}</div></td>
+                        <td class="px-6 py-4 whitespace-nowrap"><div class="text-sm text-gray-500">${album.date}</div></td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <button onclick='editAlbum(${JSON.stringify(album).replace(/'/g, "&#39;")})' class="text-indigo-600 hover:text-indigo-900 mr-3"><i class="fa-solid fa-pen-to-square"></i> 編輯</button>
+                            <button onclick="confirmDelete('album', '${album.id}')" class="text-red-600 hover:text-red-900"><i class="fa-solid fa-trash"></i> 刪除</button>
+                        </td>
+                    </tr>
+                `);
+            });
+        }
+
+        function openAlbumModal(album = null) {
+            const form = document.getElementById('albumForm');
+            form.reset();
+            document.getElementById('albumId').value = '';
+            document.getElementById('albumModalTitle').textContent = album ? '編輯相簿' : '新增相簿';
+            
+            if (album) {
+                document.getElementById('albumId').value = album.id;
+                document.getElementById('albumTitle').value = album.title;
+                document.getElementById('albumDate').value = album.date;
+                document.getElementById('albumCover').value = album.coverImage;
+                document.getElementById('albumLink').value = album.driveLink;
+                document.getElementById('albumDesc').value = album.description;
+            }
+            document.getElementById('albumModal').classList.remove('hidden');
+        }
+
+        function editAlbum(album) { openAlbumModal(album); }
+
+        document.getElementById('albumForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const spinner = document.getElementById('albumFormSpinner');
+            spinner.classList.remove('hidden');
+
+            const payload = {
+                id: document.getElementById('albumId').value,
+                title: document.getElementById('albumTitle').value,
+                date: document.getElementById('albumDate').value,
+                coverImage: document.getElementById('albumCover').value,
+                driveLink: document.getElementById('albumLink').value,
+                description: document.getElementById('albumDesc').value
+            };
+
+            try {
+                await apiCall('saveAlbum', payload);
+                await loadData(); // 重新載入最新資料
+                closeModal('albumModal');
+                showToast("相簿儲存成功！", "success");
+            } catch (err) {
+                // error handled in apiCall
+            } finally {
+                spinner.classList.add('hidden');
+            }
+        });
+
+        /**
+         * 後台 CRUD 邏輯 - 帳號
+         */
+        function renderAdminUsers() {
+            const tbody = document.getElementById('adminUsersTable');
+            tbody.innerHTML = '';
+            state.users.forEach(user => {
+                // 防止刪除或編輯自己 (可選安全機制)
+                const isMe = state.currentUser && state.currentUser.username === user.username;
+                tbody.insertAdjacentHTML('beforeend', `
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap"><div class="text-sm font-medium text-gray-900"><i class="fa-solid fa-user text-gray-400 mr-2"></i>${user.username}</div></td>
+                        <td class="px-6 py-4 whitespace-nowrap"><div class="text-sm text-gray-500">${user.createdAt || '-'}</div></td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <button onclick='editUser(${JSON.stringify(user).replace(/'/g, "&#39;")})' class="text-indigo-600 hover:text-indigo-900 mr-3"><i class="fa-solid fa-pen-to-square"></i> 編輯</button>
+                            ${isMe ? `<span class="text-gray-300 cursor-not-allowed"><i class="fa-solid fa-trash"></i> 刪除</span>` 
+                                   : `<button onclick="confirmDelete('user', '${user.id}')" class="text-red-600 hover:text-red-900"><i class="fa-solid fa-trash"></i> 刪除</button>`}
+                        </td>
+                    </tr>
+                `);
+            });
+        }
+
+        function openUserModal(user = null) {
+            const form = document.getElementById('userForm');
+            form.reset();
+            document.getElementById('userId').value = '';
+            document.getElementById('userModalTitle').textContent = user ? '編輯帳號' : '新增帳號';
+            
+            if (user) {
+                document.getElementById('userId').value = user.id;
+                document.getElementById('userUsername').value = user.username;
+                document.getElementById('userPassword').value = user.password; // 簡單明文展示
+            }
+            document.getElementById('userModal').classList.remove('hidden');
+        }
+        function editUser(user) { openUserModal(user); }
+
+        document.getElementById('userForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const spinner = document.getElementById('userFormSpinner');
+            spinner.classList.remove('hidden');
+
+            const payload = {
+                id: document.getElementById('userId').value,
+                username: document.getElementById('userUsername').value,
+                password: document.getElementById('userPassword').value
+            };
+
+            try {
+                await apiCall('saveUser', payload);
+                await loadData();
+                closeModal('userModal');
+                showToast("帳號儲存成功！", "success");
+            } catch (err) { } finally { spinner.classList.add('hidden'); }
+        });
+
+        /**
+         * 共用刪除確認邏輯
+         */
+        function confirmDelete(type, id) {
+            state.deleteTarget = { type, id };
+            document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', async () => {
+            const { type, id } = state.deleteTarget;
+            const spinner = document.getElementById('deleteSpinner');
+            spinner.classList.remove('hidden');
+
+            try {
+                const action = type === 'album' ? 'deleteAlbum' : 'deleteUser';
+                await apiCall(action, { id });
+                await loadData();
+                closeModal('deleteModal');
+                showToast("刪除成功！", "success");
+            } catch (err) { } finally { spinner.classList.add('hidden'); }
+        });
+
+        /**
+         * 雜項與 UI 輔助
+         */
+        function closeModal(modalId) { document.getElementById(modalId).classList.add('hidden'); }
+        
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            const iconBox = document.getElementById('toastIcon');
+            document.getElementById('toastMessage').textContent = message;
+            
+            // 設定樣式
+            iconBox.className = "inline-flex items-center justify-center flex-shrink-0 w-8 h-8 rounded-lg";
+            if (type === 'success') {
+                iconBox.classList.add('text-green-500', 'bg-green-100');
+                iconBox.innerHTML = '<i class="fa-solid fa-check"></i>';
+            } else if (type === 'error') {
+                iconBox.classList.add('text-red-500', 'bg-red-100');
+                iconBox.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+            } else {
+                iconBox.classList.add('text-blue-500', 'bg-blue-100');
+                iconBox.innerHTML = '<i class="fa-solid fa-info"></i>';
+            }
+
+            // 動畫顯示
+            toast.classList.remove('translate-x-full', 'opacity-0');
+            
+            // 3秒後隱藏
+            setTimeout(() => { toast.classList.add('translate-x-full', 'opacity-0'); }, 3000);
+        }
+
+    </script>
+</body>
+</html>
